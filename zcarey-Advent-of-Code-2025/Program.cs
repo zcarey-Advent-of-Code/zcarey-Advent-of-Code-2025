@@ -5,7 +5,7 @@ using System.Reflection;
 const string Test_Latest = "latest";
 
 string? TestSelection = Test_Latest;
-string? TestInput = "Example";
+string? TestInput = null;
 
 // Find all days using reflection
 IEnumerable<Type> dayTypes = Assembly.GetExecutingAssembly()
