@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 // Selects the latest day and part available
 const string Test_Latest = "latest";
@@ -7,40 +8,44 @@ const string Test_Latest = "latest";
 string? TestSelection = Test_Latest;
 string? TestInput = null;
 
+
+// Internal Variables
+Regex InputFileRegex = new Regex(@"^Day(\d\d)_([^_\.]+)\.txt$", RegexOptions.Compiled);
+Regex SolutionRegex = new Regex(@"^Day(\d\d)_Part(\d+)$", RegexOptions.Compiled);
+
 // Find all days using reflection
-IEnumerable<Type> dayTypes = Assembly.GetExecutingAssembly()
+IEnumerable<Type> solutionTypes = Assembly.GetExecutingAssembly()
     .GetTypes()
     .Where(type =>
-        typeof(IDaySolution).IsAssignableFrom(type)
+        typeof(ISolution).IsAssignableFrom(type)
         && type.IsClass
         && !type.IsAbstract);
 
-List<DayInfo> days = new();
-foreach(var type in dayTypes)
+List<SolutionInfo> solutions = new();
+foreach(var type in solutionTypes)
 {
-    DayInfo info = new();
+    SolutionInfo info = new();
     info.Type = type;
 
-    byte? numberField = (byte?)type
-        .GetProperty("Day", BindingFlags.Static | BindingFlags.Public | BindingFlags.GetProperty)
-        ?.GetValue(null);
-    Debug.Assert(numberField != null, "Failed to find day number.");
-    info.Number = numberField.Value;
+    var match = SolutionRegex.Match(type.Name);
+    Debug.Assert(match.Success, "Regex failed on type name.");
+    
+    info.Day = byte.Parse(match.Groups[1].Value);
+    info.Part = byte.Parse(match.Groups[2].Value);
+    Debug.Assert(info.Day >= 1 && info.Day <= 31, "Invalid day number");
+    Debug.Assert(info.Part >= 1 && info.Part <= 99, "Invalid part number.");
 
-    days.Add(info);
+    solutions.Add(info);
 }
 
 
-// Verify day numbers are unique
-Debug.Assert(days.DistinctBy(day => day.Number).Count() == days.Count);
-
-
-// Sort the days by their number to make the next step simpler
-days.Sort((a, b) => b.Number.CompareTo(a.Number));
+// Verify day/part numbers are unique
+Debug.Assert(solutions.DistinctBy(day => $"{day.Day}|{day.Part}").Count() == solutions.Count);
 
 
 // Select which day to run
-DayInfo selectedDay;
+List<byte> days = solutions.Select(x => x.Day).Distinct().Order().ToList();
+byte selectedDay;
 if (TestSelection != null)
 {
     if (TestSelection == Test_Latest)
@@ -56,31 +61,28 @@ if (TestSelection != null)
     Console.WriteLine("Which day to run?");
     foreach(var day in days)
     {
-        Console.WriteLine($"\tDay {day.Number}");
+        Console.WriteLine($"\tDay {day}");
     }
-    int selectedDayIndex;
-    if (!int.TryParse(Console.ReadLine(), out selectedDayIndex))
+    if (!byte.TryParse(Console.ReadLine(), out selectedDay))
         throw new Exception("Invalid day input.");
-    selectedDayIndex = days.FindIndex(info => info.Number == selectedDayIndex);
-    if (selectedDayIndex < -1)
+    if (!days.Contains(selectedDay))
         throw new Exception("Invalid day input.");
-    selectedDay = days[selectedDayIndex];
 }
-Console.WriteLine($"Day {selectedDay.Number} selected.");
+Console.WriteLine($"Day {selectedDay} selected.");
 
 
 // Select which part to run
-List<Type> parts = (List<Type>)selectedDay.Type
-    .GetProperty("Parts", BindingFlags.Static | BindingFlags.Public | BindingFlags.GetProperty)
-    ?.GetValue(null);
-Debug.Assert(parts != null && parts.Count > 0, "Failed to get parts from day.");
-
-int selectedPartIndex;
+List<byte> parts = solutions
+    .Where(x => x.Day == selectedDay)
+    .Select(x => x.Part)
+    .Order()
+    .ToList();
+byte selectedPart;
 if (TestSelection != null)
 {
     if (TestSelection == Test_Latest)
     {
-        selectedPartIndex = parts.Count - 1;
+        selectedPart = parts.Last();
     } else
     {
         throw new Exception("Invalid part selection.");
@@ -89,66 +91,86 @@ if (TestSelection != null)
 {
     // Ask the user
     Console.WriteLine("Which part to run?");
-    for (int i = 0; i < parts.Count; i++)
+    foreach (var part in parts)
     {
-        Console.WriteLine($"\tPart {i + 1}");
+        Console.WriteLine($"\tPart {part}");
     }
-    if (!int.TryParse(Console.ReadLine(), out selectedPartIndex))
+    if (!byte.TryParse(Console.ReadLine(), out selectedPart))
         throw new Exception("Invalid part input.");
-    selectedPartIndex--;
+    if (!parts.Contains(selectedPart))
+        throw new Exception("Invalid part input.");
 }
-Debug.Assert(selectedPartIndex >= 0 && selectedPartIndex < parts.Count, "Invalid part input.");
-Console.WriteLine($"Part {selectedPartIndex + 1} selected.");
+Console.WriteLine($"Part {selectedPart} selected.");
+
+
+// Get the relavent solution info
+var selectedSolution = solutions.Where(x => x.Day == selectedDay && x.Part == selectedPart).First();
+
+
+// Find all input files
+List<InputFileInfo> inputFiles = new();
+foreach(string path in Directory.GetFiles("inputs"))
+{
+    string filename = Path.GetFileName(path);
+    var match = InputFileRegex.Match(filename);
+    Debug.Assert(match.Success, "Failed to parse input file name.");
+
+    InputFileInfo info = new();
+    info.Day = byte.Parse(match.Groups[1].Value);
+    info.Name = match.Groups[2].Value;
+    info.Path = path;
+
+    if (info.Day == selectedDay)
+    {
+        inputFiles.Add(info);
+    }
+}
+Debug.Assert(inputFiles.Count > 0, "Failed to find any input files.");
 
 
 // Determine which input to use
 // If only one available, don't ask
-List<string> inputFiles = (List<string>)selectedDay.Type
-    .GetProperty("InputFiles", BindingFlags.Static | BindingFlags.Public | BindingFlags.GetProperty)
-    ?.GetValue(null);
-Debug.Assert(inputFiles != null && inputFiles.Count > 0, "Failed to get input files from day.");
-
-string selectedInputPath;
+InputFileInfo selectedInput;
 if (TestInput != null)
 {
-    Debug.Assert(inputFiles.Contains(TestInput), "Invalid test input file.");
-    selectedInputPath = TestInput;
+    selectedInput = inputFiles.First(x => x.Name == TestInput);
 } else if (inputFiles.Count == 1)
 {
-    selectedInputPath = inputFiles[0];
+    selectedInput = inputFiles[0];
 } else
 {
     // Ask the user
     Console.WriteLine("Which input file?");
     for (int i = 0; i < inputFiles.Count; i++)
     {
-        Console.WriteLine($"\t{i + 1}: {inputFiles[i]}");
+        Console.WriteLine($"\t{i + 1}: {inputFiles[i].Name}");
     }
     int selectedIndex;
     if (!int.TryParse(Console.ReadLine(), out selectedIndex) || selectedIndex < 1 || selectedIndex > inputFiles.Count)
         throw new Exception("Invalid input file selection.");
-    selectedInputPath = inputFiles[selectedIndex - 1];    
+    selectedInput = inputFiles[selectedIndex - 1];    
 }
 
-// Adjust file name for selected day
-selectedInputPath = $"Day{selectedDay.Number:00}_{selectedInputPath}.txt";
-Console.WriteLine($"Selected input file: {selectedInputPath}");
-
-// Adjust file path for the correct folder
-selectedInputPath = Path.Combine("inputs", selectedInputPath);
-
-
 // Run program using selected parameters
-IPartSolution program = (IPartSolution)Activator.CreateInstance(parts[selectedPartIndex]);
+ISolution program = (ISolution)Activator.CreateInstance(selectedSolution.Type);
 Debug.Assert(program != null, "Failed to create solution object.");
-string input = File.ReadAllText(selectedInputPath);
+string input = File.ReadAllText(selectedInput.Path);
 object? result = program.Solve(input);
 Console.WriteLine("Result:");
 Console.WriteLine(result);
 
 // Struct to hold info about the days
-struct DayInfo
+struct SolutionInfo
 {
     public Type Type;
-    public byte Number;
+    public byte Day;
+    public byte Part;
+}
+
+// Struct to hold info about the input files
+struct InputFileInfo
+{
+    public byte Day;
+    public string Name;
+    public string Path;
 }
