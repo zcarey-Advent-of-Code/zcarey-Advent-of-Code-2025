@@ -126,7 +126,7 @@ foreach(string path in Directory.GetFiles("inputs"))
     }
 }
 Debug.Assert(inputFiles.Count > 0, "Failed to find any input files.");
-
+inputFiles.Sort((a, b) => a.Name.CompareTo(b.Name));
 
 // Determine which input to use
 // If only one available, don't ask
