@@ -48,10 +48,10 @@ namespace Day09
 
     public class Day09_Part2 : Day09_Part1
     {   
-        Point[] corners;
-        Line[] lines;
-        List<Line> verticalLines;
-        List<Line> horizontalLines;
+        Point[] corners = Array.Empty<Point>();
+        Line[] lines = Array.Empty<Line>();
+        List<Line> verticalLines = new List<Line>();
+        List<Line> horizontalLines = new List<Line>();
 
         public bool PointInside(Point p)
         {
